@@ -45,10 +45,14 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
     // Internal ephemeral state to hold the data for rendering
     myInternalState: MessageStateType;
+    config: ConfigType;
 
     constructor(data: InitialData<InitStateType, ChatStateType, MessageStateType, ConfigType>) {
         super(data);
         const { messageState, config } = data;
+
+        // Store config for access in hooks
+        this.config = config || { isActive: true };
 
         // Initialize state if it doesn't exist
         this.myInternalState = messageState || {
@@ -79,7 +83,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
      ***/
     async beforePrompt(userMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
         // If the stage is turned off in config, do nothing.
-        if (this.data.config?.isActive === false) {
+        if (this.config?.isActive === false) {
             return {};
         }
 
@@ -117,7 +121,7 @@ Ensure valid JSON. Do not output this text outside the tags.
      * Parse the JSON from the AI, update state, and clean the message.
      ***/
     async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-        if (this.data.config?.isActive === false) {
+        if (this.config?.isActive === false) {
             return {};
         }
 
@@ -170,7 +174,7 @@ Ensure valid JSON. Do not output this text outside the tags.
 const SpatialDisplay = ({ state }: { state: MessageStateType }) => {
     // We use a little React hook to force a re-render if the state object changes deeply
     // though typically the parent render calls this with new props.
-    
+
     const chars = state.spatialData?.characters || [];
 
     return (
@@ -187,7 +191,7 @@ const SpatialDisplay = ({ state }: { state: MessageStateType }) => {
             <h2 style={{ borderBottom: '1px solid #444', paddingBottom: '10px' }}>
                 Spatial Status Monitor
             </h2>
-            
+
             {chars.length === 0 ? (
                 <p style={{ color: '#888' }}>No spatial data tracking yet. Start chatting!</p>
             ) : (
@@ -205,21 +209,21 @@ const SpatialDisplay = ({ state }: { state: MessageStateType }) => {
                             <div style={{ fontSize: '0.9em', color: '#aaa', marginBottom: '10px' }}>
                                 Status: <span style={{ color: '#fff' }}>{char.status}</span>
                             </div>
-                            <div style={{ 
-                                display: 'grid', 
-                                gridTemplateColumns: '1fr 1fr', 
-                                background: '#111', 
-                                padding: '10px', 
-                                borderRadius: '4px' 
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: '1fr 1fr',
+                                background: '#111',
+                                padding: '10px',
+                                borderRadius: '4px'
                             }}>
-                                <div><span style={{color:'#f88'}}>X (Right/Left):</span> {char.x}</div>
-                                <div><span style={{color:'#88f'}}>Y (Front/Back):</span> {char.y}</div>
+                                <div><span style={{ color: '#f88' }}>X (Right/Left):</span> {char.x}</div>
+                                <div><span style={{ color: '#88f' }}>Y (Front/Back):</span> {char.y}</div>
                             </div>
                         </div>
                     ))}
                 </div>
             )}
-            
+
             <div style={{ marginTop: '20px', fontSize: '0.8em', color: '#555' }}>
                 * Grid Center (0,0) is User.
             </div>

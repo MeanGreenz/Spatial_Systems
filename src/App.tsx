@@ -1,4 +1,4 @@
-import {ReactRunner} from "@chub-ai/stages-ts";
+import {ReactRunner} from "@~DaDesu~/Spatial_System";
 import {Stage} from "./Stage";
 import {TestStageRunner} from "./TestRunner";
 
