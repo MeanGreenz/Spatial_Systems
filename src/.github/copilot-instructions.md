@@ -5,59 +5,61 @@ A **Stage-based plugin system** for ChubAI that tracks character spatial positio
 
 ## Architecture & Data Flow
 
-### Core Components
-- **Stage.tsx**: Main plugin extending `StageBase<InitStateType, ChatStateType, MessageStateType, ConfigType>`
-  - `MessageStateType`: Holds `SpatialPacket` (array of characters with x/y coords) + `lastUpdate` timestamp + `lastWarnings`
-  - `ConfigType`: Simple `{ isActive: boolean }` toggle
-  
-- **SpatialDisplay Component**: Dark-themed UI rendering character positions in a grid layout
+### Core Data Structures
+- **`CharacterSpatialInfo`**: `{ name, x, y, status }` - single character's position
+- **`SpatialPacket`**: `{ characters: CharacterSpatialInfo[] }` - collection of all tracked characters
+- **`MessageStateType`**: `{ spatialData: SpatialPacket, lastUpdate: timestamp }` - persisted per message
+- **`ConfigType`**: `{ isActive: boolean }` - system on/off toggle
+
+### Key File Responsibilities
+- **Stage.tsx** (main): Implements `StageBase` lifecycle hooks; manages state & JSON parsing
+- **SpatialDisplay** (component): React UI with dark theme displaying character grid (x/y coords, status)
+- **App.tsx**: Routes between dev (`TestStageRunner`) and prod (`ReactRunner`) using `import.meta.env.MODE`
+- **TestRunner.tsx**: Local testing harness that loads `test-init.json` and provides `runTests()` function
 
 ### Three Critical Lifecycle Hooks
-1. **`beforePrompt()`**: Injects system instruction forcing AI to output spatial JSON between `<spatial_system>` tags
-2. **`afterResponse()`**: Extracts JSON using regex, updates state via `applySpatialUpdate()`, strips tags from chat bubble
-3. **`render()`**: Returns `SpatialDisplay` component with current state
+1. **`beforePrompt(userMessage)`**: Injects `systemInstruction` forcing AI to output JSON between `<spatial_system>` tags at response end
+2. **`afterResponse(botMessage)`**: Extracts JSON with regex, updates state, strips tags from visible message via `modifiedMessage`
+3. **`render()`**: Returns `SpatialDisplay` component displaying current `myInternalState`
 
 ## Key Patterns & Conventions
 
-### Data Validation & Coercion
-- All numeric inputs pass through `coerceNumber()` (accepts number | string parseable as number)
-- Coordinates clamped to ±10,000 range via `clampNumber()`
-- Character limit: 200 max; excess trimmed with warning
-- Numbers are validated before use; invalid data skipped with warning
-
-### JSON Extraction Strategy
-- Uses **global regex with `matchAll()`** to handle multiple tag pairs; **prefers last valid block** if AI outputs tags multiple times
-- Regex pattern: `` `${SPATIAL_TAG_OPEN}([\\s\\S]*?)${SPATIAL_TAG_CLOSE}` `` with global flag
-- Parsing failures logged but don't crash; message left unmodified for user debugging
-- Extracts last match: `matches[matches.length - 1][1]`
+### JSON Extraction (Regex-Based)
+- Pattern: `/<spatial_system>([\s\S]*?)<\/spatial_system>/` (dotall mode to capture newlines)
+- Extracts **first valid match** via `content.match(regex)`
+- Parsing failures logged to console but don't crash; message preserved for debugging
+- On success: `JSON.parse(match[1].trim())` → updates state → removes tags from chat
 
 ### State Management
-- State persists across message history swaps via `setState()` hook
-- `lastUpdate` timestamp updated on every successful parse
-- `lastWarnings` array accumulated for debugging; displayed in UI with orange styling
-- Deduplication by character name (last occurrence wins)
+- State persists across history swaps via `setState()` hook
+- `myInternalState` ephemeral field holds current UI data (updates on every afterResponse)
+- `lastUpdate` timestamp records when spatial JSON was last parsed
+- Deduplication: characters with same name → **last occurrence wins** in array
+- No character count limit in UI (unlimited display), but system designed for ~5-10 tracked chars
 
 ### Configuration
-- Entire system toggled by `config.isActive` boolean
-- When disabled, hooks return empty objects (no-op)
+- Entire system toggled by `config.isActive` boolean in `ConfigType`
+- When disabled, all hooks return `{}` (no-op behavior)
 
 ## Development Workflow
 
-### Testing
-- **TestRunner.tsx**: Local testing outside active chat
-  - Loads test data from `assets/test-init.json`
-  - Main hook: `runTests()` function - uncomment/modify test cases there
-  - Uses `DEFAULT_MESSAGE`, `DEFAULT_INITIAL` constants for forwards compatibility with library updates
+### Local Testing
+- **Dev mode**: `npm run dev` loads `TestRunner.tsx` (automatically via `import.meta.env.MODE === 'development'`)
+- **Test data**: `assets/test-init.json` contains Chub.ai character schema (name, description, personality, first_message, scenario)
+- **Manual testing**: Uncomment test cases in `TestRunner.runTests()` function; call `stage.beforePrompt()` / `stage.afterResponse()` with mock `Message` objects
+- **Forwards compatibility**: Use `DEFAULT_MESSAGE`, `DEFAULT_INITIAL` from `@chub-ai/stages-ts` to future-proof tests
 
 ### Build & Environment
-- **Vite-based** project
-- Dev mode: runs `TestStageRunner`; Production: runs `ReactRunner`
-- Toggle via `import.meta.env.MODE`
-- No strict mode enabled in dev (disabled for stages)
+- **Vite-based** project with dev/prod routing via `App.tsx`
+- Prod mode: runs `ReactRunner` factory (actual Chub.ai integration)
+- React Strict Mode intentionally disabled (commented out) due to Stage lifecycle patterns
+- No external UI libraries; styles use inline React objects in `SpatialDisplay`
 
-### Data Format for Testing
-- `test-init.json` conforms to Chub.ai character/user schema with fields: name, description, personality, first_message, scenario, etc.
-- Test data includes sample "Janessa" character for validation
+### Making Changes
+1. Modify `systemInstruction` string in `beforePrompt()` to change AI prompt
+2. Update `CharacterSpatialInfo` interface to add fields (e.g., distance, direction)
+3. Expand `SpatialDisplay` grid to show new fields
+4. Test with `TestRunner` by uncommenting `runTests()` cases
 
 ## Integration Points
 
@@ -74,26 +76,28 @@ A **Stage-based plugin system** for ChubAI that tracks character spatial positio
 ## Common Tasks
 
 ### Adding New Character Fields
-1. Extend `CharacterSpatialInfo` interface with new field
-2. Update `applySpatialUpdate()` to handle parsing and assignment (follow conditional pattern for x/y)
-3. Update `SpatialDisplay` grid rendering to display the field
-4. Update system prompt example JSON if relevant
+1. Extend `CharacterSpatialInfo` interface (e.g., `distance?: number`)
+2. Update `systemInstruction` example JSON to include new field
+3. Parse in `afterResponse()` when updating state (fields are optional; partial updates work)
+4. Render in `SpatialDisplay` component (add grid item or row)
 
-### Adjusting Coordinate Limits
-- `COORD_CLAMP` constant: sets ±limit for coordinates (currently 10,000)
-- `MAX_CHARACTERS`: character array size limit (currently 200)
+### Debugging AI Output
+- Check browser console for `console.error("Spatial System: Failed to parse AI JSON", e)`
+- If regex finds tags but JSON parse fails, the malformed JSON is logged but message stays intact
+- Set `config.isActive = false` to disable the system entirely and verify base chat works
 
-### Modifying System Prompt
-- Edit `systemInstruction` string in `beforePrompt()`
-- Preserve `${SPATIAL_TAG_OPEN}` / `${SPATIAL_TAG_CLOSE}` tokens for regex matching
-- Keep JSON format example in instructions for AI clarity
-- Mention that X/Y are relative to user at (0,0)
+### Coordinate System Reference
+- User is always at **(0, 0)**
+- **X**: Horizontal; negative = left, positive = right
+- **Y**: Forward depth; negative = behind, positive = in front
+- Example: Character 5m to the right = `{ x: 5, y: 0 }`
+- Example: Character 3m behind = `{ x: 0, y: -3 }`
 
 ## Important Caveats
 
 - **No persistence layer**: Spatial data exists only in browser memory during session
 - **Last-one-wins deduplication**: If incoming JSON has duplicate character names, the last occurrence is kept
-- **Partial updates supported**: Characters can update only some fields (x, y, status); existing values not reset
-- **Warning accumulation**: `lastWarnings` may grow; UI shows all but consider lifecycle management
-- **Regex preference**: If AI outputs multiple `<spatial_system>` blocks, the last valid JSON is used
-- **String coercion**: x/y can be strings like "5.5" and will parse; non-numeric strings are rejected with warning
+- **Partial updates supported**: Characters can update only some fields (x, y, status); existing values not overwritten unless explicitly provided
+- **First match extracted**: If AI outputs malformed tags or multiple JSON blocks, regex uses the first valid `<spatial_system>...</spatial_system>` pair
+- **String coercion**: x/y can be strings like "5.5" in JSON and will parse correctly; non-numeric strings are rejected and logged
+- **No state reset on config.isActive = false**: Disabling config preserves existing spatial data; re-enabling doesn't clear old state
